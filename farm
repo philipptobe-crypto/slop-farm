@@ -1,5 +1,5 @@
--- SlopFarm5 v4 instant 50% - main dev_scripter912 + gurkenfarm1-3
-local GH_URL = "PUT_YOUR_RAW_LINK_HERE"
+-- SlopFarm5 v6 placer file wahl
+local GH_URL = "https://raw.githubusercontent.com/philipptobe-crypto/slop-farm/main/farm"
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local HS = game:GetService("HttpService")
@@ -20,9 +20,6 @@ local ACC_FILE = FOLDER .. "/acc_" .. ACC .. ".json"
 local Defaults = {
     MainUsername = "dev_scripter912",
     AutoGift = true,
-    GiftOnce = true,
-    GiftMinCash = 500,
-    GiftDelay = 1,
     AutoRetry = true,
     AutoMut = true,
     Mut1 = "Gigantism",
@@ -33,6 +30,7 @@ local Defaults = {
     IgnoreTime = true,
     MainFile = "main_starter",
     AltFile = "alt_eco",
+    PlacerFile = "",
     AutoSpeed = false,
     SpeedValue = 3,
 }
@@ -46,17 +44,12 @@ end)
 for k, v in pairs(Defaults) do
     if Cfg[k] == nil then Cfg[k] = v end
 end
-getgenv().SlopFarmConfig = Cfg
 local dirty = false
 local function markDirty() dirty = true end
-local function saveNow()
-    pcall(function() writefile(ACC_FILE, HS:JSONEncode(Cfg)) end)
-    dirty = false
-end
 task.spawn(function()
     while true do
         task.wait(2)
-        if dirty then saveNow() end
+        if dirty then pcall(function() writefile(ACC_FILE, HS:JSONEncode(Cfg)) end) dirty = false end
     end
 end)
 pcall(function()
@@ -66,6 +59,29 @@ end)
 
 local function isMain()
     return string.lower(LP.Name) == string.lower(tostring(Cfg.MainUsername))
+end
+local function IsInGame()
+    if not WS:FindFirstChild("Towers") then return false end
+    if not RS:FindFirstChild("Functions") then return false end
+    if not LP.PlayerGui:FindFirstChild("GameGui") then return false end
+    return true
+end
+
+local function listFiles()
+    local out = {}
+    pcall(function()
+        for _, f in ipairs(listfiles(FOLDER)) do
+            local b = tostring(f):match("([^/\\]+)%.json$")
+            if b and b:sub(1, 4) ~= "acc_" then table.insert(out, b) end
+        end
+    end)
+    table.sort(out)
+    if #out == 0 then return {"keine files"} end
+    return out
+end
+local function curFile()
+    if Cfg.PlacerFile ~= "" then return Cfg.PlacerFile end
+    if isMain() then return Cfg.MainFile else return Cfg.AltFile end
 end
 
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua"))()
@@ -87,13 +103,11 @@ pcall(function()
     local F = RS:WaitForChild("Functions", 15)
     if F then Spawn = F:WaitForChild("SpawnTower", 10) end
 end)
-
 local function getCash()
     local c = LP:FindFirstChild("Cash")
     if c and tonumber(c.Value) then return tonumber(c.Value) end
     return 0
 end
-
 local function isOwn(m)
     if typeof(m) ~= "Instance" then return false end
     local f = WS:FindFirstChild("Towers")
@@ -104,70 +118,34 @@ local function isOwn(m)
     local val = nil
     pcall(function()
         local cfg = m:FindFirstChild("Config", true)
-        if cfg then
-            local o = cfg:FindFirstChild("Owner", true)
-            if o and o.Value ~= nil then val = o.Value return end
-        end
+        if cfg then local o = cfg:FindFirstChild("Owner", true) if o and o.Value ~= nil then val = o.Value return end end
         val = m:GetAttribute("Owner")
     end)
     if val == nil then return false end
     local n = typeof(val) == "Instance" and val.Name or tostring(val)
     return n == LP.Name
 end
-
 local function getPv(m)
     local ok, pv = pcall(function() return m:GetPivot() end)
     if ok then return pv end
     return nil
 end
 
-local giftDone = false
-local function setGift(s)
-    pcall(function()
-        if _G.SlopGiftPara then _G.SlopGiftPara:SetDesc(s) end
-    end)
-end
-
-local function doGiftOnce()
-    if isMain() then return false end
-    if not Cfg.AutoGift then return false end
-    if giftDone and Cfg.GiftOnce then return false end
-    local mainName = tostring(Cfg.MainUsername)
-    if not Players:FindFirstChild(mainName) then setGift("main nicht da") return false end
-    if getCash() < tonumber(Cfg.GiftMinCash or 500) then setGift("warte cash " .. tostring(getCash())) return false end
-    local gui = nil
-    pcall(function() gui = LP.PlayerGui.GameGui.GiftCash end)
-    if not gui then setGift("gift gui fehlt") return false end
-    pcall(function() firesignal(gui.All.Sell.Activated) end)
-    task.wait(0.3)
-    local target = nil
-    pcall(function() target = gui.Units:FindFirstChild(mainName) end)
-    if not target then setGift("main frame fehlt") return false end
-    local btn = target:FindFirstChild("Gift")
-    if not btn then return false end
-    local before = getCash()
-    pcall(function() firesignal(btn.Activated) end)
-    task.wait(1)
-    local after = getCash()
-    giftDone = true
-    setGift("gegiftet " .. tostring(before) .. " -> " .. tostring(after))
-    note("Gift", "50% an " .. mainName)
-    return true
-end
-
+local gifted = false
 task.spawn(function()
     while true do
         task.wait(0.5)
-        if not WS:FindFirstChild("Towers") then
-            giftDone = false
-            setGift("lobby warte match")
+        if not IsInGame() then gifted = false
         else
-            if not isMain() and Cfg.AutoGift and not giftDone then
-                if getCash() >= tonumber(Cfg.GiftMinCash or 500) then
-                    doGiftOnce()
-                else
-                    setGift("warte cash " .. tostring(getCash()))
-                end
+            if not isMain() and Cfg.AutoGift and not gifted then
+                local ok = pcall(function()
+                    local gui = LP.PlayerGui.GameGui.GiftCash
+                    firesignal(gui.All.Sell.Activated)
+                    task.wait(0.4)
+                    local btn = gui.Units:FindFirstChild(tostring(Cfg.MainUsername)):FindFirstChild("Gift")
+                    firesignal(btn.Activated)
+                end)
+                if ok then gifted = true end
             end
         end
     end
@@ -186,10 +164,9 @@ task.spawn(function()
     pcall(function() sm:FireServer("Sync") end)
     while true do
         task.wait(0.8)
-        if Cfg.AutoMut and #offered > 0 then
+        if Cfg.AutoMut and IsInGame() and #offered > 0 then
             local pick = nil
-            local choices = {Cfg.Mut1, Cfg.Mut2, Cfg.Mut3}
-            for _, c in ipairs(choices) do
+            for _, c in ipairs({Cfg.Mut1, Cfg.Mut2, Cfg.Mut3}) do
                 for _, o in ipairs(offered) do
                     if string.lower(o) == string.lower(tostring(c)) and string.lower(o) ~= "none" then pick = o break end
                 end
@@ -201,6 +178,7 @@ task.spawn(function()
 end)
 
 local function getReplay()
+    if not IsInGame() then return nil end
     local ok, b = pcall(function() return LP.PlayerGui.GameGui.EndScreen.Replay end)
     if not ok or typeof(b) ~= "Instance" then return nil end
     local ok2 = pcall(function() return b:IsA("GuiObject") and b.Visible and b.Parent.Visible end)
@@ -210,18 +188,9 @@ end
 task.spawn(function()
     while true do
         task.wait(1)
-        if Cfg.AutoRetry then
+        if Cfg.AutoRetry and IsInGame() then
             local b = getReplay()
             if b then pcall(function() firesignal(b.Activated) end) end
-        end
-    end
-end)
-
-task.spawn(function()
-    while true do
-        task.wait(2)
-        if Cfg.AutoSpeed then
-            pcall(function() RS.Functions.ChangeSpeed:InvokeServer(tonumber(Cfg.SpeedValue or 3)) end)
         end
     end
 end)
@@ -244,13 +213,10 @@ local Recording = false
 local Recorded = {}
 local Seen = {}
 local t0 = 0
-local function curFile()
-    if isMain() then return Cfg.MainFile else return Cfg.AltFile end
-end
 task.spawn(function()
     while true do
         task.wait(0.3)
-        if Recording then
+        if Recording and IsInGame() then
             local f = WS:FindFirstChild("Towers")
             if f then
                 for _, m in ipairs(f:GetChildren()) do
@@ -271,7 +237,9 @@ end)
 local Placing = false
 local function runPlacer(filename)
     if Placing then return end
+    if not IsInGame() then note("Placer", "lobby") return end
     if not Spawn then note("Placer", "SpawnTower fehlt") return end
+    if filename == "keine files" then note("Placer", "kein file gewählt") return end
     local ok, content = pcall(function() return readfile(FOLDER .. "/" .. tostring(filename) .. ".json") end)
     if not ok then note("Placer", "file fehlt") return end
     local data = HS:JSONDecode(content)
@@ -281,8 +249,8 @@ local function runPlacer(filename)
     local start = os.clock()
     local idx = 1
     local placed = 0
-    note("Placer", "start " .. tostring(filename))
-    while Cfg.AutoPlace and idx <= #acts do
+    note("Placer", "start " .. tostring(filename) .. " " .. tostring(#acts))
+    while Cfg.AutoPlace and IsInGame() and idx <= #acts do
         local e = acts[idx]
         local ready = Cfg.IgnoreTime
         if not ready then ready = (os.clock() - start) >= (e.Elapsed or 0) end
@@ -316,29 +284,42 @@ end
 
 local Farm = Win:Tab({Title = "Farm", Icon = "house"})
 Farm:Input({Title = "Main Username", Value = Cfg.MainUsername, Callback = function(t) Cfg.MainUsername = tostring(t); markDirty() end})
-Farm:Toggle({Title = "Auto Gift instant", Value = Cfg.AutoGift, Callback = function(s) Cfg.AutoGift = s; markDirty() end})
-Farm:Toggle({Title = "GiftOnce", Value = Cfg.GiftOnce, Callback = function(s) Cfg.GiftOnce = s; markDirty() end})
-Farm:Input({Title = "Gift ab Cash", Value = tostring(Cfg.GiftMinCash), Callback = function(t) Cfg.GiftMinCash = tonumber(t) or 500; markDirty() end})
+Farm:Toggle({Title = "Auto Gift", Value = Cfg.AutoGift, Callback = function(s) Cfg.AutoGift = s; markDirty() end})
 Farm:Toggle({Title = "Auto Retry", Value = Cfg.AutoRetry, Callback = function(s) Cfg.AutoRetry = s; markDirty() end})
 Farm:Toggle({Title = "Auto Mut", Value = Cfg.AutoMut, Callback = function(s) Cfg.AutoMut = s; markDirty() end})
 Farm:Dropdown({Title = "Mut 1", Values = {"Gigantism","Speedrun","Brainrot","ArmoredSlop","Regeneration","BossRush","TinySlop","Blackout","Invasion","None"}, Value = Cfg.Mut1, Callback = function(o) local v = o; if type(v) == "table" then v = v[1] end; Cfg.Mut1 = tostring(v); markDirty() end})
 Farm:Dropdown({Title = "Mut 2", Values = {"Gigantism","Speedrun","Brainrot","ArmoredSlop","Regeneration","BossRush","TinySlop","Blackout","Invasion","None"}, Value = Cfg.Mut2, Callback = function(o) local v = o; if type(v) == "table" then v = v[1] end; Cfg.Mut2 = tostring(v); markDirty() end})
 Farm:Dropdown({Title = "Mut 3", Values = {"Gigantism","Speedrun","Brainrot","ArmoredSlop","Regeneration","BossRush","TinySlop","Blackout","Invasion","None"}, Value = Cfg.Mut3, Callback = function(o) local v = o; if type(v) == "table" then v = v[1] end; Cfg.Mut3 = tostring(v); markDirty() end})
-Farm:Toggle({Title = "Auto Speed", Value = Cfg.AutoSpeed, Callback = function(s) Cfg.AutoSpeed = s; markDirty() end})
-_G.SlopGiftPara = Farm:Paragraph({Title = "Gift idle", Desc = "status"})
-Farm:Button({Title = "Jetzt 50% giften", Callback = function() giftDone = false; doGiftOnce() end})
+Farm:Paragraph({Title = "Gift", Desc = "towers da = einmal 50%"})
 
 local Rec = Win:Tab({Title = "Recorder", Icon = "mic"})
-Rec:Input({Title = "File", Value = curFile(), Callback = function(t) if isMain() then Cfg.MainFile = tostring(t); else Cfg.AltFile = tostring(t); end; markDirty() end})
+Rec:Input({Title = "File zum Aufnehmen", Value = curFile(), Callback = function(t) local v = tostring(t); if isMain() then Cfg.MainFile = v else Cfg.AltFile = v end; Cfg.PlacerFile = v; markDirty() end})
 Rec:Toggle({Title = "Record", Value = false, Callback = function(s)
     Recording = s
-    if s then Recorded = {}; Seen = {}; t0 = os.clock(); note("Rec", "start")
-    else pcall(function() writefile(FOLDER .. "/" .. curFile() .. ".json", HS:JSONEncode({Actions = Recorded})) end); note("Rec", "saved") end
+    if s then
+        if not IsInGame() then note("Rec", "nur ingame") Recording = false return end
+        Recorded = {}; Seen = {}; t0 = os.clock(); note("Rec", "start " .. curFile())
+    else
+        pcall(function() writefile(FOLDER .. "/" .. curFile() .. ".json", HS:JSONEncode({Actions = Recorded})) end)
+        note("Rec", "saved " .. tostring(#Recorded))
+    end
 end})
 
 local Pl = Win:Tab({Title = "Placer", Icon = "play"})
+local PlacerDrop = nil
+PlacerDrop = Pl:Dropdown({Title = "Config wählen", Values = listFiles(), Value = curFile(), Callback = function(o)
+    local v = o
+    if type(v) == "table" then v = v[1] end
+    v = tostring(v)
+    if v ~= "keine files" then Cfg.PlacerFile = v; markDirty() note("Placer", "gewählt " .. v) end
+end})
+Pl:Button({Title = "Refresh Files", Callback = function()
+    local f = listFiles()
+    pcall(function() PlacerDrop:Refresh(f) end)
+    note("Placer", tostring(#f) .. " files")
+end})
 Pl:Toggle({Title = "Auto Place", Value = Cfg.AutoPlace, Callback = function(s) Cfg.AutoPlace = s; markDirty(); if s then task.spawn(function() runPlacer(curFile()) end) end end})
 Pl:Toggle({Title = "Auto Upgrade", Value = Cfg.AutoUpgrade, Callback = function(s) Cfg.AutoUpgrade = s; markDirty() end})
 Pl:Toggle({Title = "Ignore Time", Value = Cfg.IgnoreTime, Callback = function(s) Cfg.IgnoreTime = s; markDirty() end})
 Pl:Button({Title = "Jetzt placen", Callback = function() task.spawn(function() runPlacer(curFile()) end) end})
-print("[SlopFarm5 v4] " .. LP.Name)
+print("[SlopFarm5] " .. LP.Name)
